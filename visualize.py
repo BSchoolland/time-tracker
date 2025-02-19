@@ -24,16 +24,27 @@ def flatten_tree(tree, parent="", result=None):
     
     return result
 
+def format_label(task, count, total_intervals, days):
+    """Format label to show task name, percentage, and average hours per day."""
+    percentage = (count / total_intervals) * 100
+    # Each interval is 15 minutes, so multiply by 0.25 to get hours
+    hours_per_day = (count * 0.25) / days
+    return f"{task}\n({hours_per_day:.1f}h/day)"
+
 def create_visualizations(tree, total_intervals):
     """Create and save pie chart and horizontal bar chart visualizations."""
     # Flatten the tree structure
     flat_data = flatten_tree(tree)
     
-    # Create a figure with two subplots side by side
-    fig = plt.figure(figsize=(20, 10))
+    # Calculate number of days based on total intervals
+    # Assuming each day should have 96 intervals (24 hours * 4 intervals per hour)
+    days = max(1, total_intervals / 96)
     
-    # 1. Pie Chart (left subplot)
-    ax1 = fig.add_subplot(121)
+    # Create a figure with multiple subplots in a 3x2 grid
+    fig = plt.figure(figsize=(20, 20))
+    
+    # 1. Main Pie Chart (top left)
+    ax1 = plt.subplot(321)  # 3 rows, 2 cols, position 1
     main_tasks = flat_data["main"]
     
     # Filter out tasks with very small percentages (less than 1%)
@@ -43,52 +54,48 @@ def create_visualizations(tree, total_intervals):
     if other_count > 0:
         filtered_tasks["other"] = other_count
     
-    # Create pie chart
+    # Create main pie chart
     values = list(filtered_tasks.values())
-    labels = list(filtered_tasks.keys())
-    percentages = [v/total_intervals*100 for v in values]
+    labels = [format_label(task, count, total_intervals, days) 
+             for task, count in filtered_tasks.items()]
     
-    wedges, texts, autotexts = ax1.pie(percentages, labels=labels, autopct='%1.1f%%',
+    wedges, texts, autotexts = ax1.pie(values, labels=labels,
+                                      autopct='%1.1f%%',
                                       textprops={'fontsize': 8})
     ax1.set_title("Overall Time Distribution")
     
-    # 2. Horizontal Bar Chart (right subplot)
-    ax2 = fig.add_subplot(122)
-    
-    # Find the top 3 main categories (excluding sleep) to show their breakdowns
+    # 2. Category Breakdown Pie Charts
+    # Find the top 4 main categories (excluding sleep) to show their breakdowns
     top_categories = sorted([(k, v) for k, v in main_tasks.items() if k != "sleep"],
-                          key=lambda x: x[1], reverse=True)[:3]
+                          key=lambda x: x[1], reverse=True)[:4]
     
-    # Prepare data for horizontal bar chart
-    all_bars = []
-    all_labels = []
-    y_positions = []
-    current_y = 0
-    
-    for category, _ in top_categories:
+    # Create a pie chart for each top category
+    subplot_positions = [322, 323, 324, 325]  # Positions in the 3x2 grid
+    for idx, (category, total_count) in enumerate(top_categories):
         if category in flat_data["sub"]:
+            ax = plt.subplot(subplot_positions[idx])
             subtasks = flat_data["sub"][category]
             total_category = sum(subtasks.values())
+            
+            # Handle direct category entries vs subcategories
+            direct_category_count = main_tasks.get(category, 0) - total_category
+            if direct_category_count > 0:
+                subtasks = subtasks.copy()  # Create a copy to modify
+                subtasks["other"] = direct_category_count
             
             # Sort subtasks by value
             sorted_subtasks = sorted(subtasks.items(), key=lambda x: x[1], reverse=True)
             
-            for subtask, count in sorted_subtasks:
-                percentage = (count / total_category) * 100
-                all_bars.append(percentage)
-                all_labels.append(f"{category}: {subtask}")
-                y_positions.append(current_y)
-                current_y += 1
+            # Create pie chart for this category
+            values = [count for _, count in sorted_subtasks]
+            labels = [format_label(task, count, total_count, days)
+                     for task, count in sorted_subtasks]
             
-            # Add space between categories
-            current_y += 1
-    
-    # Create horizontal bar chart
-    ax2.barh(y_positions, all_bars)
-    ax2.set_yticks(y_positions)
-    ax2.set_yticklabels(all_labels, fontsize=8)
-    ax2.set_xlabel("Percentage within Category")
-    ax2.set_title("Breakdown of Top 3 Categories")
+            wedges, texts, autotexts = ax.pie(values, labels=labels,
+                                             autopct='%1.1f%%',
+                                             textprops={'fontsize': 8})
+            total_hours = (total_count * 0.25) / days
+            ax.set_title(f"{category.title()} Breakdown\nTotal: {total_hours:.1f}h/day")
     
     # Adjust layout and save
     plt.tight_layout()
